@@ -199,6 +199,7 @@ class MediathekViewUpdater( object ):
 							except ValueError as err:
 								pass
 
+			self.db.ftFlushInsert()
 			self._update_end( full, 'IDLE' )
 			self.logger.info( 'Import of {} in update cycle {} finished', destfile, self.cycle )
 			self.notifier.CloseUpdateProgress()
@@ -346,12 +347,12 @@ class MediathekViewUpdater( object ):
 		self.add_chn = 0
 		self.add_shw = 0
 		self.add_mov = 0
-		self.add_chn = 0
-		self.add_shw = 0
-		self.add_mov = 0
 		self.del_chn = 0
 		self.del_shw = 0
 		self.del_mov = 0
+		self.tot_chn = 0
+		self.tot_shw = 0
+		self.tot_shw = 0
 		self.index = 0
 		self.count = 0
 		self.film = {
@@ -403,7 +404,7 @@ class MediathekViewUpdater( object ):
 		self.film["geo"] = ""
 
 	def _end_record( self, records ):
-		if self.count % 1000 == 0:
+		if self.count % 2000 == 0:
 			percent = int( self.count * 100 / records )
 			self.logger.info( 'In progress (%d%%): channels:%d, shows:%d, movies:%d ...' % ( percent, self.add_chn, self.add_shw, self.add_mov ) )
 			self.notifier.UpdateUpdateProgress( percent if percent <= 100 else 100, self.count, self.add_chn, self.add_shw, self.add_mov )
@@ -417,6 +418,7 @@ class MediathekViewUpdater( object ):
 			)
 			self.count = self.count + 1
 			( _, cnt_chn, cnt_shw, cnt_mov ) = self.db.ftInsertFilm( self.film, True )
+			self.db.ftFlushInsert()
 		else:
 			self.count = self.count + 1
 			( _, cnt_chn, cnt_shw, cnt_mov ) = self.db.ftInsertFilm( self.film, False )

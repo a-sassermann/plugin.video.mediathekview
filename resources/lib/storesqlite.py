@@ -694,6 +694,9 @@ class StoreSQLite( object ):
 			self._handle_database_corruption( err )
 			raise DatabaseCorrupted( 'Database error during critical operation: {} - Database will be rebuilt from scratch.'.format( err ) )
 
+	def ftFlushInsert(self):
+		return;
+
 	def _handle_database_corruption( self, err ):
 		self.logger.error( 'Database error during critical operation: {} - Database will be rebuilt from scratch.', err )
 		self.notifier.ShowDatabaseError( err )

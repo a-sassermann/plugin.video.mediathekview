@@ -26,11 +26,17 @@
 # -- Imports ------------------------------------------------
 from __future__ import unicode_literals
 from resources.lib.mvupdate import UpdateApp
+import datetime
 
 # -- Main Code ----------------------------------------------
 if __name__ == '__main__':
+
+	print('start')
+	print(datetime.datetime.now())
 	app = UpdateApp()
 	app.Init()
 	app.Run()
 	app.Exit()
 	del app
+	print('end')
+	print(datetime.datetime.now())

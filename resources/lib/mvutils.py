@@ -18,6 +18,7 @@ import stat
 import string
 import urllib
 import urllib2
+import md5
 
 from contextlib import closing
 from resources.lib.exceptions import ExitRequested
@@ -70,6 +71,12 @@ def make_search_string( val ):
 	cset = string.letters + string.digits + ' _-#'
 	search = ''.join( [ c for c in val if c in cset ] )
 	return search.upper().strip()
+
+
+def make_hashkey(channel, show, url):
+	st = channel + ':' + show + ':' + url
+	hashObject = md5.new(st.encode('utf-8'))
+	return hashObject.hexdigest()
 
 def make_duration( val ):
 	if val == "00:00:00":

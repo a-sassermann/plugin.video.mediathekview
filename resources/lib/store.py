@@ -5,6 +5,7 @@
 # -- Imports ------------------------------------------------
 from resources.lib.storemysql  import StoreMySQL
 from resources.lib.storesqlite import StoreSQLite
+from datetime import time
 
 # -- Classes ------------------------------------------------
 class Store( object ):
@@ -113,3 +114,8 @@ class Store( object ):
 		if self.db is not None:
 			return self.db.ftInsertFilm( film, commit )
 		return ( 0, 0, 0, 0, )
+
+	def ftFlushInsert(self):
+		if self.db is not None:
+			self.db.ftFlushInsert()
+		return
