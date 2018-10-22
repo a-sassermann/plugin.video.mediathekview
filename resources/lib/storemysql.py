@@ -78,6 +78,7 @@ class StoreMySQL( object ):
 		return self._handle_database_update( convert )
 
 	def Exit( self ):
+		self.logger.info('in Exit')
 		if self.conn is not None:
 			self.conn.close()
 			self.conn = None
@@ -330,6 +331,8 @@ class StoreMySQL( object ):
 			'tot_mov': 0
 		}
 		if self.conn is None:
+			self.logger.error( 'mysqldb no connection' )
+
 			status['status'] = "UNINIT"
 			return status
 		try:
@@ -357,7 +360,7 @@ class StoreMySQL( object ):
 			status['tot_mov']		= r[0][13]
 			return status
 		except mysql.connector.Error as err:
-			if err.errno == -1:
+			if err.errno == -1  and reconnect:
 				# connection lost. Retry:
 				self.logger.warn( 'Database connection lost. Trying to reconnect...' )
 				if self.reinit():
@@ -372,7 +375,7 @@ class StoreMySQL( object ):
 		if self.conn is None:
 			return
 		new = self.GetStatus()
-		old = new['status']
+		old = self.GetStatus()
 		if status is not None:
 			new['status'] = status
 		if lastupdate is not None:
@@ -381,18 +384,18 @@ class StoreMySQL( object ):
 			new['filmupdate'] = filmupdate
 		if fullupdate is not None:
 			new['fullupdate'] = fullupdate
-		if add_chn is not None:
-			new['add_chn'] = add_chn
-		if add_shw is not None:
-			new['add_shw'] = add_shw
-		if add_mov is not None:
-			new['add_mov'] = add_mov
-		if del_chn is not None:
-			new['del_chn'] = del_chn
-		if del_shw is not None:
-			new['del_shw'] = del_shw
-		if del_mov is not None:
-			new['del_mov'] = del_mov
+		if tot_chn is not None:
+			new['add_chn'] = max(0, tot_chn - old['tot_chn'])
+		if tot_shw is not None:
+			new['add_shw'] = max(0, tot_shw - old['tot_shw'])
+		if tot_mov is not None:
+			new['add_mov'] = max(0, tot_mov - old['tot_mov'])
+		if tot_chn is not None:
+			new['del_chn'] = max(0, old['tot_chn'] - tot_chn)
+		if tot_shw is not None:
+			new['del_shw'] = max(0, old['tot_shw'] - tot_shw)
+		if tot_mov is not None:
+			new['del_mov'] = max(0, old['tot_mov'] - tot_mov)
 		if tot_chn is not None:
 			new['tot_chn'] = tot_chn
 		if tot_shw is not None:
@@ -403,7 +406,7 @@ class StoreMySQL( object ):
 		new['modified'] = int( time.time() )
 		try:
 			cursor = self.conn.cursor()
-			if old == "NONE":
+			if old['status'] == "NONE":
 				# insert status
 				cursor.execute(
 					"""
@@ -704,12 +707,12 @@ class StoreMySQL( object ):
 			# should never happen - something went wrong...
 			self.Exit()
 			return False
-		elif version == 2:
+		elif version == 3:
 			# current version
 			return True
 		elif convert is False:
 			# do not convert (Addon threads)
-			self.Exit()
+			#self.Exit()
 			self.notifier.ShowUpdatingScheme()
 			return False
 		elif version == 1:
@@ -837,6 +840,8 @@ class StoreMySQL( object ):
 		return True
 
 	def _handle_database_initialization( self ):
+		self.logger.info('Database creation started')
+
 		cursor = None
 		dbcreated = False
 		try:
@@ -887,7 +892,34 @@ CREATE TABLE `film` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
 			""" )
 			self.conn.commit()
-
+			cursor.execute("""CREATE TABLE IF NOT EXISTS `film_import` (
+								 `id` int(11) NOT NULL AUTO_INCREMENT,
+								 `idhash` varchar(32) DEFAULT NULL,
+								 `dtCreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+								 `touched` smallint(1) NOT NULL DEFAULT '1',
+								 `channel` varchar(64) NOT NULL,
+								 `channelid` int(11) NOT NULL,
+								 `show` varchar(128) NOT NULL,
+								 `showsearch` varchar(128) NOT NULL,
+								 `showid` int(11) NOT NULL,
+								 `title` varchar(128) NOT NULL,
+								 `search` varchar(128) NOT NULL,
+								 `aired` timestamp NULL DEFAULT NULL,
+								 `duration` time DEFAULT NULL,
+								 `size` int(11) DEFAULT NULL,
+								 `description` longtext,
+								 `website` varchar(384) DEFAULT NULL,
+								 `url_sub` varchar(384) DEFAULT NULL,
+								 `url_video` varchar(384) DEFAULT NULL,
+								 `url_video_sd` varchar(384) DEFAULT NULL,
+								 `url_video_hd` varchar(384) DEFAULT NULL,
+								 `airedepoch` int(11) DEFAULT NULL,
+								 PRIMARY KEY (`id`),
+								 KEY `index_1` (`channel`,`show`),
+								 KEY `dupecheck` (`idhash`)
+								) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
+							""")
+			self.conn.commit()
 			cursor.execute( """
 CREATE TABLE `show` (
 	`id`			int(11)			NOT NULL AUTO_INCREMENT,
