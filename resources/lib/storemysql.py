@@ -344,20 +344,20 @@ class StoreMySQL( object ):
 			if len( r ) == 0:
 				status['status'] = "NONE"
 				return status
-			status['modified']		= r[0][0]
-			status['status']		= r[0][1]
-			status['lastupdate']	= r[0][2]
-			status['filmupdate']	= r[0][3]
-			status['fullupdate']	= r[0][4]
-			status['add_chn']		= r[0][5]
-			status['add_shw']		= r[0][6]
-			status['add_mov']		= r[0][7]
-			status['del_chn']		= r[0][8]
-			status['del_shw']		= r[0][9]
-			status['del_mov']		= r[0][10]
-			status['tot_chn']		= r[0][11]
-			status['tot_shw']		= r[0][12]
-			status['tot_mov']		= r[0][13]
+			status['modified']		= r[0][1]
+			status['status']	= r[0][2]
+			status['lastupdate']	= r[0][3]
+			status['filmupdate']	= r[0][4]
+			status['fullupdate']		= r[0][5]
+			status['add_chn']		= r[0][6]
+			status['add_shw']		= r[0][7]
+			status['add_mov']		= r[0][8]
+			status['del_chn']		= r[0][9]
+			status['del_shw']		= r[0][10]
+			status['del_mov']		= r[0][11]
+			status['tot_chn']		= r[0][12]
+			status['tot_shw']		= r[0][13]
+			status['tot_mov']		= r[0][14]
 			return status
 		except mysql.connector.Error as err:
 			if err.errno == -1  and reconnect:
@@ -374,8 +374,10 @@ class StoreMySQL( object ):
 	def UpdateStatus( self, status = None, lastupdate = None, filmupdate = None, fullupdate = None, add_chn = None, add_shw = None, add_mov = None, del_chn = None, del_shw = None, del_mov = None, tot_chn = None, tot_shw = None, tot_mov = None ):
 		if self.conn is None:
 			return
-		new = self.GetStatus()
+		if status is None:
+			return
 		old = self.GetStatus()
+		new = self.GetStatus()
 		if status is not None:
 			new['status'] = status
 		if lastupdate is not None:
@@ -384,6 +386,54 @@ class StoreMySQL( object ):
 			new['filmupdate'] = filmupdate
 		if fullupdate is not None:
 			new['fullupdate'] = fullupdate
+
+		if(old['status'] == 'NONE'):
+			try:
+				cursor = self.conn.cursor()
+				# insert status
+				cursor.execute("""
+					INSERT INTO `status` (
+						`id`, `status`, `lastupdate`, `filmupdate`, `fullupdate`
+					) VALUES (
+						%s, %s, %s, %s, %s
+					)
+					""", (
+						1, status, lastupdate, filmupdate, fullupdate
+					)
+				)
+				cursor.close()
+				self.conn.commit()
+			except mysql.connector.Error as err:
+				self.logger.error('Database error: {}, {}', err.errno, err)
+				self.notifier.ShowDatabaseError(err)
+				return
+			if(status != 'IDLE'):
+				return
+
+		if(status != 'IDLE'):
+			try:
+				cursor = self.conn.cursor()
+				# insert status
+				cursor.execute("""
+					UPDATE `status` 
+						set
+							`status` = %s, `lastupdate` = %s, `filmupdate` = %s, `fullupdate` = %s
+						where id=1
+					""", (
+						new['status'],
+						new['lastupdate'],
+						new['filmupdate'],
+						new['fullupdate']
+					)
+				)
+				cursor.close()
+				self.conn.commit()
+			except mysql.connector.Error as err:
+				self.logger.error('Database error: {}, {}', err.errno, err)
+				self.notifier.ShowDatabaseError(err)
+			return
+
+
 		if tot_chn is not None:
 			new['add_chn'] = max(0, tot_chn - old['tot_chn'])
 		if tot_shw is not None:
@@ -406,95 +456,41 @@ class StoreMySQL( object ):
 		new['modified'] = int( time.time() )
 		try:
 			cursor = self.conn.cursor()
-			if old['status'] == "NONE":
-				# insert status
-				cursor.execute(
-					"""
-					INSERT INTO `status` (
-						`modified`,
-						`status`,
-						`lastupdate`,
-						`filmupdate`,
-						`fullupdate`,
-						`add_chn`,
-						`add_shw`,
-						`add_mov`,
-						`del_chm`,
-						`del_shw`,
-						`del_mov`,
-						`tot_chn`,
-						`tot_shw`,
-						`tot_mov`
-					)
-					VALUES (
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s,
-						%s
-					)
-					""", (
-						new['modified'],
-						new['status'],
-						new['lastupdate'],
-						new['filmupdate'],
-						new['fullupdate'],
-						new['add_chn'],
-						new['add_shw'],
-						new['add_mov'],
-						new['del_chn'],
-						new['del_shw'],
-						new['del_mov'],
-						new['tot_chn'],
-						new['tot_shw'],
-						new['tot_mov'],
-					)
+			# insert status
+			cursor.execute( """
+				UPDATE `status`
+					SET `modified`		= %s,
+						`status`		= %s,
+						`lastupdate`	= %s,
+						`filmupdate`	= %s,
+						`fullupdate`	= %s,
+						`add_chn`		= %s,
+						`add_shw`		= %s,
+						`add_mov`		= %s,
+						`del_chm`		= %s,
+						`del_shw`		= %s,
+						`del_mov`		= %s,
+						`tot_chn`		= %s,
+						`tot_shw`		= %s,
+						`tot_mov`		= %s
+					where id = 1
+				""", (
+					new['modified'],
+					new['status'],
+					new['lastupdate'],
+					new['filmupdate'],
+					new['fullupdate'],
+					new['add_chn'],
+					new['add_shw'],
+					new['add_mov'],
+					new['del_chn'],
+					new['del_shw'],
+					new['del_mov'],
+					new['tot_chn'],
+					new['tot_shw'],
+					new['tot_mov'],
 				)
-			else:
-				# update status
-				cursor.execute(
-					"""
-					UPDATE `status`
-					SET		`modified`		= %s,
-							`status`		= %s,
-							`lastupdate`	= %s,
-							`filmupdate`	= %s,
-							`fullupdate`	= %s,
-							`add_chn`		= %s,
-							`add_shw`		= %s,
-							`add_mov`		= %s,
-							`del_chm`		= %s,
-							`del_shw`		= %s,
-							`del_mov`		= %s,
-							`tot_chn`		= %s,
-							`tot_shw`		= %s,
-							`tot_mov`		= %s
-					""", (
-						new['modified'],
-						new['status'],
-						new['lastupdate'],
-						new['filmupdate'],
-						new['fullupdate'],
-						new['add_chn'],
-						new['add_shw'],
-						new['add_mov'],
-						new['del_chn'],
-						new['del_shw'],
-						new['del_mov'],
-						new['tot_chn'],
-						new['tot_shw'],
-						new['tot_mov'],
-					)
-				)
+			)
 			cursor.close()
 			self.conn.commit()
 		except mysql.connector.Error as err:
@@ -773,29 +769,32 @@ class StoreMySQL( object ):
 				self.logger.info('Dropping touched column on show...')
 				cursor.execute('ALTER TABLE `show` DROP  `touched`')
 				self.notifier.UpdateUpdateSchemeProgress(15)
+				self.logger.info('Adding primary key to staus...')
+				cursor.execute("ALTER TABLE `status` ADD `id` INT(4) UNSIGNED NOT NULL DEFAULT '1' FIRST, ADD PRIMARY KEY (`id`)")
+				self.notifier.UpdateUpdateSchemeProgress(20)
 				self.logger.info('Dropping touched column on film...')
 				cursor.execute('ALTER TABLE `film` DROP  `touched`')
-				self.notifier.UpdateUpdateSchemeProgress(50)
+				self.notifier.UpdateUpdateSchemeProgress(60)
 
 				self.logger.info('Dropping stored procedure ftInsertChannel...')
 				cursor.execute('DROP PROCEDURE IF EXISTS `ftInsertChannel`')
-				self.notifier.UpdateUpdateSchemeProgress(55)
+				self.notifier.UpdateUpdateSchemeProgress(65)
 
 				self.logger.info('Dropping stored procedure ftInsertFilm...')
 				cursor.execute('DROP PROCEDURE IF EXISTS `ftInsertFilm`')
-				self.notifier.UpdateUpdateSchemeProgress(60)
+				self.notifier.UpdateUpdateSchemeProgress(70)
 
 				self.logger.info('Dropping stored procedure ftInsertShow...')
 				cursor.execute('DROP PROCEDURE IF EXISTS `ftInsertShow`')
-				self.notifier.UpdateUpdateSchemeProgress(65)
+				self.notifier.UpdateUpdateSchemeProgress(75)
 
 				self.logger.info('Dropping stored procedure ftUpdateEnd...')
 				cursor.execute('DROP PROCEDURE IF EXISTS `ftUpdateEnd`')
-				self.notifier.UpdateUpdateSchemeProgress(70)
+				self.notifier.UpdateUpdateSchemeProgress(80)
 
 				self.logger.info('Dropping stored procedure ftUpdateStart...')
 				cursor.execute('DROP PROCEDURE IF EXISTS `ftUpdateStart`')
-				self.notifier.UpdateUpdateSchemeProgress(75)
+				self.notifier.UpdateUpdateSchemeProgress(85)
 
 				self.logger.info('Creating tabele film_import...')
 				cursor.execute("""CREATE TABLE IF NOT EXISTS `film_import` (
@@ -851,110 +850,111 @@ class StoreMySQL( object ):
 			self.conn.database = self.settings.database
 			cursor.execute( 'SET FOREIGN_KEY_CHECKS=0' )
 			self.conn.commit()
-			cursor.execute(
-				"""
-CREATE TABLE `channel` (
-	`id`			int(11)			NOT NULL AUTO_INCREMENT,
-	`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`channel`		varchar(64)		NOT NULL,
-	PRIMARY KEY						(`id`),
-	KEY				`channel`		(`channel`)
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
-				"""
-			)
+			cursor.execute("""
+				CREATE TABLE `channel` (
+					`id`			int(11)			NOT NULL AUTO_INCREMENT,
+					`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					`channel`		varchar(64)		NOT NULL,
+					PRIMARY KEY						(`id`),
+					KEY				`channel`		(`channel`)
+				) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
+			""")
 			self.conn.commit()
 
 			cursor.execute( """
-CREATE TABLE `film` (
-	`id`			int(11)			NOT NULL AUTO_INCREMENT,
-	`idhash`		varchar(32)		DEFAULT NULL,
-	`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`channelid`		int(11)			NOT NULL,
-	`showid`		int(11)			NOT NULL,
-	`title`			varchar(128)	NOT NULL,
-	`search`		varchar(128)	NOT NULL,
-	`aired`			timestamp		NULL DEFAULT NULL,
-	`duration`		time			DEFAULT NULL,
-	`size`			int(11)			DEFAULT NULL,
-	`description`	longtext,
-	`website`		varchar(384)	DEFAULT NULL,
-	`url_sub`		varchar(384)	DEFAULT NULL,
-	`url_video`		varchar(384)	DEFAULT NULL,
-	`url_video_sd`	varchar(384)	DEFAULT NULL,
-	`url_video_hd`	varchar(384)	DEFAULT NULL,
-	`airedepoch`	int(11)			DEFAULT NULL,
-	PRIMARY KEY						(`id`),
-	KEY				`index_1`		(`showid`,`title`),
-	KEY				`index_2`		(`channelid`,`title`),
-	KEY				`dupecheck`		(`idhash`),
-	CONSTRAINT `FK_FilmChannel` FOREIGN KEY (`channelid`) REFERENCES `channel` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION,
-	CONSTRAINT `FK_FilmShow` FOREIGN KEY (`showid`) REFERENCES `show` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
+				CREATE TABLE `film` (
+					`id`			int(11)			NOT NULL AUTO_INCREMENT,
+					`idhash`		varchar(32)		DEFAULT NULL,
+					`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					`channelid`		int(11)			NOT NULL,
+					`showid`		int(11)			NOT NULL,
+					`title`			varchar(128)	NOT NULL,
+					`search`		varchar(128)	NOT NULL,
+					`aired`			timestamp		NULL DEFAULT NULL,
+					`duration`		time			DEFAULT NULL,
+					`size`			int(11)			DEFAULT NULL,
+					`description`	longtext,
+					`website`		varchar(384)	DEFAULT NULL,
+					`url_sub`		varchar(384)	DEFAULT NULL,
+					`url_video`		varchar(384)	DEFAULT NULL,
+					`url_video_sd`	varchar(384)	DEFAULT NULL,
+					`url_video_hd`	varchar(384)	DEFAULT NULL,
+					`airedepoch`	int(11)			DEFAULT NULL,
+					PRIMARY KEY						(`id`),
+					KEY				`index_1`		(`showid`,`title`),
+					KEY				`index_2`		(`channelid`,`title`),
+					KEY				`dupecheck`		(`idhash`),
+					CONSTRAINT `FK_FilmChannel` FOREIGN KEY (`channelid`) REFERENCES `channel` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION,
+					CONSTRAINT `FK_FilmShow` FOREIGN KEY (`showid`) REFERENCES `show` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION
+				) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
 			""" )
 			self.conn.commit()
-			cursor.execute("""CREATE TABLE IF NOT EXISTS `film_import` (
-								 `id` int(11) NOT NULL AUTO_INCREMENT,
-								 `idhash` varchar(32) DEFAULT NULL,
-								 `dtCreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-								 `touched` smallint(1) NOT NULL DEFAULT '1',
-								 `channel` varchar(64) NOT NULL,
-								 `channelid` int(11) NOT NULL,
-								 `show` varchar(128) NOT NULL,
-								 `showsearch` varchar(128) NOT NULL,
-								 `showid` int(11) NOT NULL,
-								 `title` varchar(128) NOT NULL,
-								 `search` varchar(128) NOT NULL,
-								 `aired` timestamp NULL DEFAULT NULL,
-								 `duration` time DEFAULT NULL,
-								 `size` int(11) DEFAULT NULL,
-								 `description` longtext,
-								 `website` varchar(384) DEFAULT NULL,
-								 `url_sub` varchar(384) DEFAULT NULL,
-								 `url_video` varchar(384) DEFAULT NULL,
-								 `url_video_sd` varchar(384) DEFAULT NULL,
-								 `url_video_hd` varchar(384) DEFAULT NULL,
-								 `airedepoch` int(11) DEFAULT NULL,
-								 PRIMARY KEY (`id`),
-								 KEY `index_1` (`channel`,`show`),
-								 KEY `dupecheck` (`idhash`)
-								) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
-							""")
+			cursor.execute("""
+				CREATE TABLE IF NOT EXISTS `film_import` (
+					`id` int(11) NOT NULL AUTO_INCREMENT,
+					`idhash` varchar(32) DEFAULT NULL,
+					`dtCreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					`touched` smallint(1) NOT NULL DEFAULT '1',
+					`channel` varchar(64) NOT NULL,
+					`channelid` int(11) NOT NULL,
+					`show` varchar(128) NOT NULL,
+					`showsearch` varchar(128) NOT NULL,
+					`showid` int(11) NOT NULL,
+					`title` varchar(128) NOT NULL,
+					`search` varchar(128) NOT NULL,
+					`aired` timestamp NULL DEFAULT NULL,
+					`duration` time DEFAULT NULL,
+					`size` int(11) DEFAULT NULL,
+					`description` longtext,
+					`website` varchar(384) DEFAULT NULL,
+					`url_sub` varchar(384) DEFAULT NULL,
+					`url_video` varchar(384) DEFAULT NULL,
+					`url_video_sd` varchar(384) DEFAULT NULL,
+					`url_video_hd` varchar(384) DEFAULT NULL,
+					`airedepoch` int(11) DEFAULT NULL,
+					PRIMARY KEY (`id`),
+					KEY `index_1` (`channel`,`show`),
+					KEY `dupecheck` (`idhash`)
+				) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
+			""")
 			self.conn.commit()
 			cursor.execute( """
-CREATE TABLE `show` (
-	`id`			int(11)			NOT NULL AUTO_INCREMENT,
-	`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`channelid`		int(11)			NOT NULL,
-	`show`			varchar(128)	NOT NULL,
-	`search`		varchar(128)	NOT NULL,
-	PRIMARY KEY						(`id`),
-	KEY				`show`			(`show`),
-	KEY				`search`		(`search`),
-	KEY				`combined_1`	(`channelid`,`search`),
-	KEY				`combined_2`	(`channelid`,`show`),
-	CONSTRAINT `FK_ShowChannel` FOREIGN KEY (`channelid`) REFERENCES `channel` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
+				CREATE TABLE `show` (
+					`id`			int(11)			NOT NULL AUTO_INCREMENT,
+					`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					`channelid`		int(11)			NOT NULL,
+					`show`			varchar(128)	NOT NULL,
+					`search`		varchar(128)	NOT NULL,
+					PRIMARY KEY						(`id`),
+					KEY				`show`			(`show`),
+					KEY				`search`		(`search`),
+					KEY				`combined_1`	(`channelid`,`search`),
+					KEY				`combined_2`	(`channelid`,`show`),
+					CONSTRAINT `FK_ShowChannel` FOREIGN KEY (`channelid`) REFERENCES `channel` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION
+				) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
 			""" )
 			self.conn.commit()
 
 			cursor.execute( """
-CREATE TABLE `status` (
-	`modified`		int(11)			NOT NULL,
-	`status`		varchar(255)	NOT NULL,
-	`lastupdate`	int(11)			NOT NULL,
-	`filmupdate`	int(11)			NOT NULL,
-	`fullupdate`	int(1)			NOT NULL,
-	`add_chn`		int(11)			NOT NULL,
-	`add_shw`		int(11)			NOT NULL,
-	`add_mov`		int(11)			NOT NULL,
-	`del_chm`		int(11)			NOT NULL,
-	`del_shw`		int(11)			NOT NULL,
-	`del_mov`		int(11)			NOT NULL,
-	`tot_chn`		int(11)			NOT NULL,
-	`tot_shw`		int(11)			NOT NULL,
-	`tot_mov`		int(11)			NOT NULL,
-	`version`		int(11)			NOT NULL DEFAULT 3
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8;
+				CREATE TABLE `status` (
+				 `id` int(4) unsigned NOT NULL DEFAULT '1',
+				 `modified` int(11) NOT NULL,
+				 `status` varchar(255) NOT NULL,
+				 `lastupdate` int(11) NOT NULL,
+				 `filmupdate` int(11) NOT NULL,
+				 `fullupdate` int(1) NOT NULL,
+				 `add_chn` int(11) NOT NULL,
+				 `add_shw` int(11) NOT NULL,
+				 `add_mov` int(11) NOT NULL,
+				 `del_chm` int(11) NOT NULL,
+				 `del_shw` int(11) NOT NULL,
+				 `del_mov` int(11) NOT NULL,
+				 `tot_chn` int(11) NOT NULL,
+				 `tot_shw` int(11) NOT NULL,
+				 `tot_mov` int(11) NOT NULL,
+				 `version` int(11) NOT NULL DEFAULT '3',
+				 PRIMARY KEY (`id`)
+				) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
 			""" )
 			self.conn.commit()
 
