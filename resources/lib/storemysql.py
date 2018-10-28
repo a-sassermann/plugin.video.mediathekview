@@ -40,8 +40,8 @@ class StoreMySQL( object ):
 		self.ft_showid = None
 		# useful query fragments
 		# pylint: disable=line-too-long
-		self.sql_query_films	= "SELECT film.id,`title`,`show`,`channel`,`description`,TIME_TO_SEC(`duration`) AS `seconds`,`size`,`aired`,`url_sub`,`url_video`,`url_video_sd`,`url_video_hd` FROM `film` LEFT JOIN `show` ON show.id=film.showid LEFT JOIN `channel` ON channel.id=film.channelid"
-		self.sql_query_filmcnt	= "SELECT COUNT(*) FROM `film` LEFT JOIN `show` ON show.id=film.showid LEFT JOIN `channel` ON channel.id=film.channelid"
+		self.sql_query_films	= "SELECT film.id,`title`,`show`,`channel`,`description`,TIME_TO_SEC(`duration`) AS `seconds`,`size`,`aired`,`url_sub`,`url_video`,`url_video_sd`,`url_video_hd` FROM `film` LEFT JOIN `show` ON `show`.id=film.showid LEFT JOIN `channel` ON channel.id=film.channelid"
+		self.sql_query_filmcnt	= "SELECT COUNT(*) FROM `film` LEFT JOIN `show` ON `show`.id=film.showid LEFT JOIN `channel` ON channel.id=film.channelid"
 		self.sql_cond_recent	= "( TIMESTAMPDIFF(SECOND,{},CURRENT_TIMESTAMP()) <= {} )".format( "aired" if settings.recentmode == 0 else "film.dtCreated", settings.maxage )
 		self.sql_cond_nofuture	= " AND ( ( `aired` IS NULL ) OR ( TIMESTAMPDIFF(HOUR,`aired`,CURRENT_TIMESTAMP()) > 0 ) )" if settings.nofuture else ""
 		self.sql_cond_minlength	= " AND ( ( `duration` IS NULL ) OR ( TIME_TO_SEC(`duration`) >= %d ) )" % settings.minlength if settings.minlength > 0 else ""
@@ -606,7 +606,7 @@ class StoreMySQL( object ):
 						and f.idhash is null
 			""")
 
-			cursor.execute("""truncate film_import""");
+			cursor.execute("""truncate film_import""")
 
 			cursor.close()
 			self.conn.commit()
@@ -960,7 +960,7 @@ class StoreMySQL( object ):
 			""" )
 			self.conn.commit()
 
-			cursor.execute( 'INSERT INTO `status` VALUES (0,"IDLE",0,0,0,0,0,0,0,0,0,0,0,0,3);' )
+			cursor.execute( 'INSERT INTO `status` VALUES (1, 0,"IDLE",0,0,0,0,0,0,0,0,0,0,0,0,3)' )
 			self.conn.commit()
 
 			cursor.execute( 'SET FOREIGN_KEY_CHECKS=1' )

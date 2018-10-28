@@ -350,9 +350,6 @@ class MediathekViewUpdater( object ):
 		self.del_chn = 0
 		self.del_shw = 0
 		self.del_mov = 0
-		self.tot_chn = 0
-		self.tot_shw = 0
-		self.tot_shw = 0
 		self.index = 0
 		self.count = 0
 		self.film = {
