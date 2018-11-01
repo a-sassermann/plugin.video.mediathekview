@@ -55,6 +55,9 @@ class StoreSQLite( object ):
 		self.conn.create_aggregate( 'GROUP_CONCAT', 1, GROUP_CONCAT )
 		return True
 
+	def flushBlockSize(self):
+		return 1000;
+
 	def Exit( self ):
 		if self.conn is not None:
 			self.conn.close()

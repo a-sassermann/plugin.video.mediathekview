@@ -119,3 +119,8 @@ class Store( object ):
 		if self.db is not None:
 			self.db.ftFlushInsert()
 		return
+
+	def flushBlockSize(self):
+		if(self.db) is not None:
+			return self.db.flushBlockSize()
+		return 1

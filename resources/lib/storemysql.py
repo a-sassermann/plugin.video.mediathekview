@@ -27,7 +27,9 @@ class StoreMySQL( object ):
 				`website`, `url_sub`, `url_video`, `url_video_sd`, `url_video_hd`, 
 				`airedepoch`) values 
 				"""
-		self.sqlValues = ''
+		self.blockInsert = ''
+		self.blockCursor = None
+		self.filmImportColumns = 16
 		self.sqlData = []
 		self.conn		= None
 		self.logger		= logger
@@ -47,7 +49,7 @@ class StoreMySQL( object ):
 		self.sql_cond_minlength	= " AND ( ( `duration` IS NULL ) OR ( TIME_TO_SEC(`duration`) >= %d ) )" % settings.minlength if settings.minlength > 0 else ""
 
 	def Init( self, reset, convert ):
-		self.resetInsertSql()
+		self.clearInsertData()
 
 		self.logger.info( 'Using MySQL connector version {}', mysql.connector.__version__ )
 		try:
@@ -55,16 +57,23 @@ class StoreMySQL( object ):
 				host		= self.settings.host,
 				port		= self.settings.port,
 				user		= self.settings.user,
-				password	= self.settings.password
+				password	= self.settings.password,
+				use_pure 	= False
 			)
 			try:
 				cursor = self.conn.cursor()
 				cursor.execute( 'SELECT VERSION()' )
 				( version, ) = cursor.fetchone()
 				self.logger.info( 'Connected to server {} running {}', self.settings.host, version )
+
+				self.blockInsert = self.buildInsert(self.flushBlockSize())
+				# tests showed that prepared statements provide no speed improvemend
+				# as this feature is not implemented
+				# in the c clientlib
+				self.blockCursor = self.conn.cursor(prepared=False)
 			# pylint: disable=broad-except
-			except Exception:
-				self.logger.info( 'Connected to server {}', self.settings.host )
+			except Exception as err:
+				self.logger.info( 'Server Err {}', err.message )
 			self.conn.database = self.settings.database
 		except mysql.connector.Error as err:
 			if err.errno == mysql.connector.errorcode.ER_BAD_DB_ERROR:
@@ -74,6 +83,10 @@ class StoreMySQL( object ):
 			self.logger.error( 'Database error: {}, {}', err.errno, err )
 			self.notifier.ShowDatabaseError( err )
 			return False
+		except Exception as err:
+			if err.errno == mysql.connector.errorcode.ER_BAD_DB_ERROR:
+				self.logger.info( '=== DATABASE {} DOES NOT EXIST. TRYING TO CREATE IT ===', self.settings.database )
+				return self._handle_database_initialization()
 
 		# handle schema versioning
 		return self._handle_database_update( convert )
@@ -81,11 +94,22 @@ class StoreMySQL( object ):
 	def Exit( self ):
 		self.logger.info('in Exit')
 		if self.conn is not None:
+			if self.blockCursor is not None:
+				self.blockCursor.close()
+				self.blockCursor = None
 			self.conn.close()
 			self.conn = None
 
-	def resetInsertSql(self):
-		self.sqlValues = ''
+	def buildInsert(self, rows):
+		sqlValues = ''
+		for i in xrange(0, rows):
+			sqlValues += ' (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s),'
+		return self.sqlInsert + sqlValues[:-1]
+
+	def flushBlockSize(self):
+		return 2000;
+
+	def clearInsertData(self):
 		self.sqlData = []
 
 	def Search( self, search, filmui, extendedsearch ):
@@ -558,20 +582,20 @@ class StoreMySQL( object ):
 					delete f1 from film f1
 					left join film_import f2
 					on f1.idhash = f2.idhash
-					where f2.id is null
+					where f2.idhash is null
 				""")
 				del_mov = cursor.rowcount
 
 			cursor.execute("""
-				insert into `channel` (dtCreated, channel)
-					select distinct now() dtCreated, fi.`channel`from film_import fi
+				insert into `channel` (channel)
+					select distinct fi.`channel`from film_import fi
 					left join `channel` c on fi.channel=c.channel
 					where c.channel is null
 			""")
 
 			cursor.execute("""
-				insert into `show` (dtCreated, channelid, `show`, `search`)
-					select distinct now() dtCreated, c.`id` channelid, fi.`show`, fi.`showsearch`
+				insert into `show` (channelid, `show`, `search`)
+					select distinct c.`id` channelid, fi.`show`, fi.`showsearch`
 					from `channel` c, film_import fi
 					left join `show` s on fi.show=s.show
 					where fi.channel=c.channel
@@ -595,10 +619,10 @@ class StoreMySQL( object ):
 			del_shw = cursor.rowcount
 
 			cursor.execute("""
-				insert into `film` (idhash, dtCreated, channelid, showid, title, `search`,
+				insert into `film` (idhash, channelid, showid, title, `search`,
 					aired, duration, website, url_sub, url_video, url_video_sd,
 					url_video_hd, airedepoch)
-					select distinct fi.idhash, now() dtCreated, c.`id` channelid, s.`id` showid, fi.title, fi.`search`, fi.aired, fi.duration, fi.website, fi.url_sub, fi.url_video, fi.url_video_sd, fi.url_video_hd, fi.airedepoch
+					select distinct fi.idhash, c.`id` channelid, s.`id` showid, fi.title, fi.`search`, fi.aired, fi.duration, fi.website, fi.url_sub, fi.url_video, fi.url_video_sd, fi.url_video_hd, fi.airedepoch
 						from `channel` c, `show` s , film_import fi
 						left join film f on fi.idhash=f.idhash
 						where fi.channel=c.channel
@@ -645,7 +669,6 @@ class StoreMySQL( object ):
 		hashkey = hashlib.md5((channel + ':' + show + ':' + film["url_video"]).encode('utf-8')).hexdigest()
 
 		try:
-			self.sqlValues += """ (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s),"""
 			self.sqlData += [
 				hashkey,
 				channel,
@@ -673,14 +696,17 @@ class StoreMySQL( object ):
 		return ( 0, 0, 0, 0, )
 
 	def ftFlushInsert(self):
-		cursor = self.conn.cursor()
-		if len(self.sqlData) > 0:
-			sql = self.sqlInsert + self.sqlValues[:-1]
-			cursor.execute(sql, self.sqlData)
-		cursor.close()
-		self.conn.commit()
-		self.resetInsertSql()
-
+		rows = len(self.sqlData)
+		if rows > 0:
+			if rows == self.flushBlockSize() * self.filmImportColumns:
+				self.blockCursor.execute(self.blockInsert, self.sqlData)
+			else:
+				cursor = self.conn.cursor()
+				sql = self.buildInsert(len(self.sqlData) / self.filmImportColumns)
+				cursor.execute(sql, self.sqlData)
+				cursor.close()
+			self.conn.commit()
+		self.clearInsertData()
 
 	def _get_schema_version( self ):
 		if self.conn is None:
@@ -775,7 +801,7 @@ class StoreMySQL( object ):
 				cursor.execute("ALTER TABLE `status` ADD `id` INT(4) UNSIGNED NOT NULL DEFAULT '1' FIRST, ADD PRIMARY KEY (`id`)")
 				self.notifier.UpdateUpdateSchemeProgress(20)
 				self.logger.info('Dropping touched column on film...')
-				cursor.execute('ALTER TABLE `film` DROP  `touched`')
+				cursor.execute('ALTER TABLE `film` DROP  `touched`, CHANGE idhash idhash varchar(32) NOT NULL')
 				self.notifier.UpdateUpdateSchemeProgress(60)
 
 				self.logger.info('Dropping stored procedure ftInsertChannel...')
@@ -800,31 +826,26 @@ class StoreMySQL( object ):
 
 				self.logger.info('Creating tabele film_import...')
 				cursor.execute("""CREATE TABLE IF NOT EXISTS `film_import` (
-					 `id` int(11) NOT NULL AUTO_INCREMENT,
-					 `idhash` varchar(32) DEFAULT NULL,
-					 `dtCreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-					 `touched` smallint(1) NOT NULL DEFAULT '1',
-					 `channel` varchar(64) NOT NULL,
-					 `channelid` int(11) NOT NULL,
-					 `show` varchar(128) NOT NULL,
-					 `showsearch` varchar(128) NOT NULL,
-					 `showid` int(11) NOT NULL,
-					 `title` varchar(128) NOT NULL,
-					 `search` varchar(128) NOT NULL,
-					 `aired` timestamp NULL DEFAULT NULL,
-					 `duration` time DEFAULT NULL,
-					 `size` int(11) DEFAULT NULL,
-					 `description` longtext,
-					 `website` varchar(384) DEFAULT NULL,
-					 `url_sub` varchar(384) DEFAULT NULL,
-					 `url_video` varchar(384) DEFAULT NULL,
-					 `url_video_sd` varchar(384) DEFAULT NULL,
-					 `url_video_hd` varchar(384) DEFAULT NULL,
-					 `airedepoch` int(11) DEFAULT NULL,
-					 PRIMARY KEY (`id`),
-					 KEY `index_1` (`channel`,`show`),
-					 KEY `dupecheck` (`idhash`)
-					) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
+					`idhash` varchar(32) NOT NULL,
+					`channel` varchar(64) NOT NULL,
+					`show` varchar(128) NOT NULL,
+					`showsearch` varchar(128) NOT NULL,
+					`title` varchar(128) NOT NULL,
+					`search` varchar(128) NOT NULL,
+					`aired` timestamp NULL DEFAULT NULL,
+					`duration` time DEFAULT NULL,
+					`size` int(11) DEFAULT NULL,
+					`description` longtext,
+					`website` varchar(384) DEFAULT NULL,
+					`url_sub` varchar(384) DEFAULT NULL,
+					`url_video` varchar(384) DEFAULT NULL,
+					`url_video_sd` varchar(384) DEFAULT NULL,
+					`url_video_hd` varchar(384) DEFAULT NULL,
+					`airedepoch` int(11) DEFAULT NULL,
+					KEY `idhash` (`idhash`),
+					KEY `channel` (`channel`),
+					KEY `show` (`show`)
+				) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
 				""")
 				self.notifier.UpdateUpdateSchemeProgress(95)
 				cursor.execute('UPDATE `status` set `version` = 3')
@@ -866,7 +887,7 @@ class StoreMySQL( object ):
 			cursor.execute( """
 				CREATE TABLE `film` (
 					`id`			int(11)			NOT NULL AUTO_INCREMENT,
-					`idhash`		varchar(32)		DEFAULT NULL,
+					`idhash`		varchar(32)		NOT NULL,
 					`dtCreated`		timestamp		NOT NULL DEFAULT CURRENT_TIMESTAMP,
 					`channelid`		int(11)			NOT NULL,
 					`showid`		int(11)			NOT NULL,
@@ -893,15 +914,10 @@ class StoreMySQL( object ):
 			self.conn.commit()
 			cursor.execute("""
 				CREATE TABLE IF NOT EXISTS `film_import` (
-					`id` int(11) NOT NULL AUTO_INCREMENT,
-					`idhash` varchar(32) DEFAULT NULL,
-					`dtCreated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-					`touched` smallint(1) NOT NULL DEFAULT '1',
+					`idhash` varchar(32) NOT NULL,
 					`channel` varchar(64) NOT NULL,
-					`channelid` int(11) NOT NULL,
 					`show` varchar(128) NOT NULL,
 					`showsearch` varchar(128) NOT NULL,
-					`showid` int(11) NOT NULL,
 					`title` varchar(128) NOT NULL,
 					`search` varchar(128) NOT NULL,
 					`aired` timestamp NULL DEFAULT NULL,
@@ -914,9 +930,9 @@ class StoreMySQL( object ):
 					`url_video_sd` varchar(384) DEFAULT NULL,
 					`url_video_hd` varchar(384) DEFAULT NULL,
 					`airedepoch` int(11) DEFAULT NULL,
-					PRIMARY KEY (`id`),
-					KEY `index_1` (`channel`,`show`),
-					KEY `dupecheck` (`idhash`)
+					KEY `idhash` (`idhash`),
+					KEY `channel` (`channel`),
+					KEY `show` (`show`)
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=DYNAMIC
 			""")
 			self.conn.commit()

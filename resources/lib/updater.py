@@ -171,7 +171,6 @@ class MediathekViewUpdater( object ):
 							return True
 					elif ( prefix, event ) == ( "X.item", "string" ):
 						if value is not None:
-	#						self._add_value( value.strip().encode('utf-8') )
 							self._add_value( value.strip() )
 						else:
 							self._add_value( "" )
@@ -401,8 +400,10 @@ class MediathekViewUpdater( object ):
 		self.film["geo"] = ""
 
 	def _end_record( self, records ):
-		if self.count % 2000 == 0:
-			percent = int( self.count * 100 / records )
+		self.count = self.count + 1
+		if self.count % self.db.flushBlockSize() == 0:
+			#add 10% to record for final db update time in update_end
+			percent = int( self.count * 100 / (records * 1.1) )
 			self.logger.info( 'In progress (%d%%): channels:%d, shows:%d, movies:%d ...' % ( percent, self.add_chn, self.add_shw, self.add_mov ) )
 			self.notifier.UpdateUpdateProgress( percent if percent <= 100 else 100, self.count, self.add_chn, self.add_shw, self.add_mov )
 			self.db.UpdateStatus(
@@ -413,11 +414,9 @@ class MediathekViewUpdater( object ):
 				tot_shw = self.tot_shw + self.add_shw,
 				tot_mov = self.tot_mov + self.add_mov
 			)
-			self.count = self.count + 1
 			( _, cnt_chn, cnt_shw, cnt_mov ) = self.db.ftInsertFilm( self.film, True )
 			self.db.ftFlushInsert()
 		else:
-			self.count = self.count + 1
 			( _, cnt_chn, cnt_shw, cnt_mov ) = self.db.ftInsertFilm( self.film, False )
 		self.add_chn += cnt_chn
 		self.add_shw += cnt_shw
