@@ -59,20 +59,19 @@ class StoreMySQL( object ):
 				user		= self.settings.user,
 				password	= self.settings.password
 			)
-			try:
-				cursor = self.conn.cursor()
-				cursor.execute( 'SELECT VERSION()' )
-				( version, ) = cursor.fetchone()
-				self.logger.info( 'Connected to server {} running {}', self.settings.host, version )
+			cursor = self.conn.cursor()
+			cursor.execute( 'SELECT VERSION()' )
+			( version, ) = cursor.fetchone()
+			self.logger.info( 'Connected to server {} running {}', self.settings.host, version )
 
-				self.blockInsert = self.buildInsert(self.flushBlockSize())
-				# tests showed that prepared statements provide no speed improvemend
-				# as this feature is not implemented
-				# in the c clientlib
-				self.blockCursor = self.conn.cursor()
+			self.blockInsert = self.buildInsert(self.flushBlockSize())
+			# tests showed that prepared statements provide no speed improvemend
+			# as this feature is not implemented
+			# in the c clientlib
+			self.blockCursor = self.conn.cursor()
+			self._check_db_state()
+
 			# pylint: disable=broad-except
-			except Exception as err:
-				self.logger.info( 'Server Err {}', err.message )
 			self.conn.database = self.settings.database
 		except mysql.connector.Error as err:
 			if err.errno == mysql.connector.errorcode.ER_BAD_DB_ERROR:
@@ -84,11 +83,45 @@ class StoreMySQL( object ):
 			return False
 		except Exception as err:
 			if err.args[0] == mysql.connector.errorcode.ER_BAD_DB_ERROR:
-				self.logger.info( '=== DATABASE {} DOES NOT EXIST. TRYING TO CREATE IT ===', self.settings.database )
+				self.logger.info('=== DATABASE {} DOES NOT EXIST. TRYING TO CREATE IT ===', self.settings.database)
 				return self._handle_database_initialization()
+			self.conn = None
+			self.logger.error('Database error: {}, {}', err.args[0], err)
+			self.notifier.ShowDatabaseError(err)
+			return False
 
 		# handle schema versioning
 		return self._handle_database_update( convert )
+
+	def _check_db_state(self):
+		"""
+		check existance of database and tables and take required actions
+		"""
+		cursor = self.conn.cursor()
+		cursor.execute('show databases like %s', (self.settings.database,))
+		row = cursor.fetchone()
+		if row is None:
+			cursor.close()
+			return self._handle_database_initialization()
+		self.conn.database = self.settings.database
+		cursor.execute('show tables')
+		tablesRequired2 = {u'channel', u'show', u'film', u'show', u'status'}
+		tablesRequired3 = {u'channel', u'show', u'film', u'show', u'status', u'film_import'}
+		tablesFound = []
+		row = cursor.fetchone()
+		while row is not None:
+			tablesFound.append(row[0])
+			row = cursor.fetchone()
+		if tablesRequired2.intersection(tablesFound) == tablesRequired2:
+			version = self._get_schema_version()
+			if version == 2:
+				# found all tables required for v2
+				return
+			if version == 3 and tablesRequired3.intersection(tablesFound) == tablesRequired3:
+				# found all tables required for v3
+				return
+
+		self._handle_database_initialization()
 
 	def Exit( self ):
 		self.logger.info('in Exit')
@@ -106,7 +139,7 @@ class StoreMySQL( object ):
 		return self.sqlInsert + sqlValues[:-1]
 
 	def flushBlockSize(self):
-		return 2000;
+		return 2000
 
 	def clearInsertData(self):
 		self.sqlData = []
@@ -411,7 +444,7 @@ class StoreMySQL( object ):
 		if fullupdate is not None:
 			new['fullupdate'] = fullupdate
 
-		if(old['status'] == 'NONE'):
+		if old['status'] == 'NONE':
 			try:
 				cursor = self.conn.cursor()
 				# insert status
@@ -431,10 +464,10 @@ class StoreMySQL( object ):
 				self.logger.error('Database error: {}, {}', err.errno, err)
 				self.notifier.ShowDatabaseError(err)
 				return
-			if(status != 'IDLE'):
+			if status != 'IDLE':
 				return
 
-		if(status != 'IDLE'):
+		if status != 'IDLE':
 			try:
 				cursor = self.conn.cursor()
 				# insert status
@@ -975,7 +1008,7 @@ class StoreMySQL( object ):
 			""" )
 			self.conn.commit()
 
-			cursor.execute( 'INSERT INTO `status` VALUES (1, 0,"IDLE",0,0,0,0,0,0,0,0,0,0,0,0,3)' )
+			cursor.execute( 'INSERT INTO `status` VALUES (1, 0,"IDLE",0,0,1,0,0,0,0,0,0,0,0,0,3)' )
 			self.conn.commit()
 
 			cursor.execute( 'SET FOREIGN_KEY_CHECKS=1' )

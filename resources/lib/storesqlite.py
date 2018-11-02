@@ -56,7 +56,7 @@ class StoreSQLite( object ):
 		return True
 
 	def flushBlockSize(self):
-		return 1000;
+		return 1000
 
 	def Exit( self ):
 		if self.conn is not None:
