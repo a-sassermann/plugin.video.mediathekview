@@ -69,31 +69,21 @@ class StoreMySQL( object ):
 			# as this feature is not implemented
 			# in the c clientlib
 			self.blockCursor = self.conn.cursor()
-			self._check_db_state()
-
-			# pylint: disable=broad-except
-			self.conn.database = self.settings.database
-		except mysql.connector.Error as err:
-			if err.errno == mysql.connector.errorcode.ER_BAD_DB_ERROR:
-				self.logger.info( '=== DATABASE {} DOES NOT EXIST. TRYING TO CREATE IT ===', self.settings.database )
-				return self._handle_database_initialization()
-			self.conn = None
-			self.logger.error( 'Database error: {}, {}', err.errno, err )
-			self.notifier.ShowDatabaseError( err )
-			return False
+			if self._check_db_state(convert):
+				self.conn.database = self.settings.database
+			else:
+				self.conn = None
+				return False
+		# pylint: disable=broad-except
 		except Exception as err:
-			if err.args[0] == mysql.connector.errorcode.ER_BAD_DB_ERROR:
-				self.logger.info('=== DATABASE {} DOES NOT EXIST. TRYING TO CREATE IT ===', self.settings.database)
-				return self._handle_database_initialization()
 			self.conn = None
 			self.logger.error('Database error: {}, {}', err.args[0], err)
 			self.notifier.ShowDatabaseError(err)
 			return False
-
 		# handle schema versioning
 		return self._handle_database_update( convert )
 
-	def _check_db_state(self):
+	def _check_db_state(self, convert):
 		"""
 		check existance of database and tables and take required actions
 		"""
@@ -102,7 +92,7 @@ class StoreMySQL( object ):
 		row = cursor.fetchone()
 		if row is None:
 			cursor.close()
-			return self._handle_database_initialization()
+			return self._handle_database_initialization(convert)
 		self.conn.database = self.settings.database
 		cursor.execute('show tables')
 		tablesRequired2 = {u'channel', u'show', u'film', u'show', u'status'}
@@ -116,12 +106,12 @@ class StoreMySQL( object ):
 			version = self._get_schema_version()
 			if version == 2:
 				# found all tables required for v2
-				return
+				return True
 			if version == 3 and tablesRequired3.intersection(tablesFound) == tablesRequired3:
 				# found all tables required for v3
-				return
+				return True
 
-		self._handle_database_initialization()
+		return self._handle_database_initialization(convert)
 
 	def Exit( self ):
 		self.logger.info('in Exit')
@@ -490,7 +480,6 @@ class StoreMySQL( object ):
 				self.notifier.ShowDatabaseError(err)
 			return
 
-
 		if tot_chn is not None:
 			new['add_chn'] = max(0, tot_chn - old['tot_chn'])
 		if tot_shw is not None:
@@ -600,13 +589,13 @@ class StoreMySQL( object ):
 		return ( 0, 0, 0, )
 
 	def ftUpdateEnd( self, delete ):
+		del_chn = 0
+		del_shw = 0
+		del_mov = 0
+		tot_chn = 0
+		tot_shw = 0
+		tot_mov = 0
 		try:
-			del_chn = 0
-			del_shw = 0
-			del_mov = 0
-			tot_chn = 0
-			tot_shw = 0
-			tot_mov = 0
 
 			cursor = self.conn.cursor()
 			if delete:
@@ -893,7 +882,11 @@ class StoreMySQL( object ):
 				return False
 		return True
 
-	def _handle_database_initialization( self ):
+	def _handle_database_initialization( self, convert):
+		if convert == False:
+			self.notifier.ShowDatabaseError('Database not yet set up')
+			return False
+
 		self.logger.info('Database creation started')
 
 		cursor = None
